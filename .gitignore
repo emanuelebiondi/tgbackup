@@ -41,3 +41,8 @@ restore_*/
 .idea/
 *.swp
 *~
+
+# Arch Linux Packaging
+pkg/
+src/
+*.pkg.tar.*

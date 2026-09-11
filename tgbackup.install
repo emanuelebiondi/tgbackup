@@ -1,0 +1,9 @@
+post_install() {
+    echo "==> TGBackup installed successfully to /usr/bin/tgbackup"
+    echo "==> Run 'tgbackup init' to configure your settings."
+    echo "==> Omarchy plugin installed to /usr/share/tgbackup/omarchy-plugin"
+}
+
+post_upgrade() {
+    post_install
+}

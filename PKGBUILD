@@ -4,7 +4,7 @@ pkgver=1.0.0
 pkgrel=1
 pkgdesc="Native standalone Arch/Linux backup CLI and daemon to Telegram Supergroup Cluster with AES-256-GCM and zstd"
 arch=('any')
-url="https://github.com/tgbackup/tgbackup"
+url="https://github.com/emanuelebiondi/tgbackup"
 license=('MIT')
 depends=(
     'python'
@@ -19,17 +19,18 @@ optdepends=(
     'quickshell: Omarchy Shell bar widget and panel support'
 )
 makedepends=('python-build' 'python-installer' 'python-wheel' 'python-setuptools')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/tgbackup/$pkgname/archive/refs/tags/v$pkgver.tar.gz")
-# For local builds:
-# source=()
+install=tgbackup.install
+source=()
+sha256sums=()
 
 build() {
-    cd "$srcdir/$pkgname-$pkgver" 2>/dev/null || cd "$startdir"
+    cd "$startdir"
+    rm -rf dist
     python -m build --wheel --no-isolation
 }
 
 package() {
-    cd "$srcdir/$pkgname-$pkgver" 2>/dev/null || cd "$startdir"
+    cd "$startdir"
     python -m installer --destdir="$pkgdir" dist/*.whl
 
     # Install systemd user units

@@ -1,0 +1,22 @@
+pkgbase = tgbackup
+	pkgdesc = Native standalone Arch/Linux backup CLI and daemon to Telegram Supergroup Cluster with AES-256-GCM and zstd
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/emanuelebiondi/tgbackup
+	install = tgbackup.install
+	arch = any
+	license = MIT
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-setuptools
+	depends = python
+	depends = python-cryptography
+	depends = python-zstandard
+	depends = python-rich
+	depends = python-aiosqlite
+	depends = python-telegram-bot
+	optdepends = libnotify: Native desktop notifications (notify-send)
+	optdepends = quickshell: Omarchy Shell bar widget and panel support
+
+pkgname = tgbackup

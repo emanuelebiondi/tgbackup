@@ -328,3 +328,42 @@ async def interactive_init(target_path: Optional[str] = None):
 
     save_config(new_cfg, cfg_path)
     console.print(f"\n[green]Configuration saved successfully to [bold]{cfg_path}[/bold] (mode 0600)[/green]")
+    auto_link_omarchy_plugin()
+
+
+def auto_link_omarchy_plugin():
+    """
+    ---------------------------------------------------------------------------
+    Function: auto_link_omarchy_plugin
+    Description:
+        Automatically symlinks the Omarchy desktop shell plugin into
+        ~/.config/omarchy/plugins/tgbackup, prioritizing the system installation
+        directory (/usr/share/tgbackup/omarchy-plugin) over local paths.
+    Input parameters:
+        None
+    Return value:
+        None
+    ---------------------------------------------------------------------------
+    """
+    omarchy_cfg = os.path.expanduser("~/.config/omarchy")
+    if not os.path.isdir(omarchy_cfg):
+        return
+    plugins_dir = os.path.join(omarchy_cfg, "plugins")
+    os.makedirs(plugins_dir, exist_ok=True)
+    target = os.path.join(plugins_dir, "tgbackup")
+
+    system_plugin = "/usr/share/tgbackup/omarchy-plugin"
+    local_plugin = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "omarchy-plugin")
+
+    source = system_plugin if os.path.isdir(system_plugin) else (local_plugin if os.path.isdir(local_plugin) else None)
+    if not source:
+        return
+
+    if not os.path.exists(target) or (os.path.islink(target) and not os.path.exists(os.readlink(target))):
+        try:
+            if os.path.islink(target) or os.path.exists(target):
+                os.unlink(target)
+            os.symlink(source, target)
+            console.print(f"[green]Omarchy shell plugin automatically linked to: {target}[/green]")
+        except Exception:
+            pass

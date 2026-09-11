@@ -44,23 +44,43 @@ Unlike solutions relying on Duplicati, Rclone wrappers, or heavy Docker containe
 ## Installation
 
 ### 1. System Requirements
-- Linux distribution (Arch Linux recommended).
+- Linux distribution (Arch Linux / Omarchy recommended).
 - Python `>= 3.10`
 - `tar`, `zstandard`, `openssl`, `findmnt`
 
-### 2. Local Installation / Virtualenv
+### 2. Native Arch Linux Installation (Recommended / Default)
+Installing TGBackup natively via its Arch Linux package places the executable in `/usr/bin/tgbackup`, registers Systemd user units in `/usr/lib/systemd/user/`, and installs the Omarchy Shell plugin in `/usr/share/tgbackup/omarchy-plugin/`. Once installed, it is completely independent of the git clone directory (which can be safely deleted or moved).
+
+Using `yay` (recommended, automatically resolves official & AUR dependencies):
 ```bash
-git clone https://github.com/tgbackup/tgbackup.git
+git clone https://github.com/emanuelebiondi/tgbackup.git
+cd tgbackup
+yay -Bi .
+```
+
+Or using the automated installer:
+```bash
+./install.sh
+```
+
+Or building directly with `makepkg`:
+```bash
+makepkg -si
+```
+
+To uninstall at any time:
+```bash
+sudo pacman -R tgbackup
+```
+
+### 3. Local Development / Generic Linux Virtualenv
+For development or non-Arch distributions:
+```bash
+git clone https://github.com/emanuelebiondi/tgbackup.git
 cd tgbackup
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
-```
-
-### 3. Native Arch Linux Installation (PKGBUILD)
-```bash
-cd tgbackup
-makepkg -si
 ```
 
 ---
