@@ -174,6 +174,23 @@ class BotCluster:
                 })
         return results
 
+    async def topic_exists(self, thread_id: Optional[int], name: str = "Test") -> bool:
+        if not thread_id or not self.use_topics:
+            return True
+        if self.mock:
+            return True
+        bot = self.get_primary_bot()
+        try:
+            await bot.edit_forum_topic(chat_id=self.channel_id, message_thread_id=thread_id, name=name)
+            return True
+        except Exception as e:
+            err = str(e).lower()
+            if "not_modified" in err or "not modified" in err:
+                return True
+            if "invalid" in err or "not found" in err:
+                return False
+            return True
+
     async def get_or_create_topic(self, topic_name: str, color_hex: int = 0x6FB9F0) -> Optional[int]:
         if not self.use_topics:
             return None
@@ -201,13 +218,21 @@ class BotCluster:
             return self.mock_msg_counter
 
         bot = self.get_primary_bot()
+        kwargs = {"chat_id": self.channel_id, "text": text, "parse_mode": "HTML"}
+        if thread_id:
+            kwargs["message_thread_id"] = thread_id
         try:
-            kwargs = {"chat_id": self.channel_id, "text": text, "parse_mode": "HTML"}
-            if thread_id:
-                kwargs["message_thread_id"] = thread_id
             msg = await bot.send_message(**kwargs)
             return msg.message_id
         except Exception as e:
+            err = str(e).lower()
+            if thread_id and ("not found" in err or "invalid" in err):
+                try:
+                    kwargs.pop("message_thread_id", None)
+                    msg = await bot.send_message(**kwargs)
+                    return msg.message_id
+                except Exception:
+                    pass
             logger.error(f"Error sending notification: {e}")
             return None
 
@@ -288,6 +313,12 @@ class BotCluster:
                 logger.warning(f"Telegram Rate Limit on bot #{bot_idx + 1}: sleeping {ra.retry_after}s")
                 await asyncio.sleep(ra.retry_after)
             except TelegramError as te:
+                err = str(te).lower()
+                if "thread not found" in err or "topic_id_invalid" in err:
+                    logger.warning(f"Topic {thread_id} not found on Telegram. Retrying upload to general topic...")
+                    thread_id = None
+                    await asyncio.sleep(1)
+                    continue
                 logger.error(f"Telegram Error on bot #{bot_idx + 1}: {te}")
                 await asyncio.sleep(min(30, 2 ** attempt))
             except Exception as e:

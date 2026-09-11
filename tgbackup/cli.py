@@ -154,21 +154,29 @@ async def run_backup_profile(
 
     # 2. Telegram Forum Topics
     backup_topic_id = prof_cfg.get("topic_id")
-    if cfg.get("use_topics", True) and not backup_topic_id:
-        with console.status(f"[cyan]Verifying Telegram topic '{topic_name}'...[/cyan]"):
-            backup_topic_id = await cluster.get_or_create_topic(topic_name)
-            if backup_topic_id:
-                prof_cfg["topic_id"] = backup_topic_id
-                save_config(cfg)
+    if cfg.get("use_topics", True):
+        if backup_topic_id and not await cluster.topic_exists(backup_topic_id, topic_name):
+            console.print(f"[yellow]Telegram topic '{topic_name}' (ID: {backup_topic_id}) not found on Telegram. Recreating...[/yellow]")
+            backup_topic_id = None
+        if not backup_topic_id:
+            with console.status(f"[cyan]Verifying Telegram topic '{topic_name}'...[/cyan]"):
+                backup_topic_id = await cluster.get_or_create_topic(topic_name)
+                if backup_topic_id:
+                    prof_cfg["topic_id"] = backup_topic_id
+                    save_config(cfg)
 
     notif_topic_id = cfg.get("notif_topic_id")
-    if cfg.get("use_topics", True) and not notif_topic_id:
+    if cfg.get("use_topics", True):
         notif_name = cfg.get("notif_topic_name", "Notifications")
-        with console.status(f"[cyan]Verifying notifications topic '{notif_name}'...[/cyan]"):
-            notif_topic_id = await cluster.get_or_create_topic(notif_name)
-            if notif_topic_id:
-                cfg["notif_topic_id"] = notif_topic_id
-                save_config(cfg)
+        if notif_topic_id and not await cluster.topic_exists(notif_topic_id, notif_name):
+            console.print(f"[yellow]Notifications topic '{notif_name}' (ID: {notif_topic_id}) not found on Telegram. Recreating...[/yellow]")
+            notif_topic_id = None
+        if not notif_topic_id:
+            with console.status(f"[cyan]Verifying notifications topic '{notif_name}'...[/cyan]"):
+                notif_topic_id = await cluster.get_or_create_topic(notif_name)
+                if notif_topic_id:
+                    cfg["notif_topic_id"] = notif_topic_id
+                    save_config(cfg)
 
     # Start notification
     notif_text = (
@@ -225,9 +233,6 @@ async def run_backup_profile(
             if total_parts == 0:
                 emit_progress("done", 100, "No modified files detected. Backup unchanged.")
 
-            # Save snapshot record in DB
-            await db.save_snapshot(manifest)
-
             # Secondary local storage sync (e.g. external HDD)
             manifest_path = os.path.join(tmpdir, f"snap_{profile_name}_{snap_id}.manifest.json")
             target_local_dir = local_dir or cfg.get("local_backup_dir")
@@ -242,6 +247,7 @@ async def run_backup_profile(
                 console.print(f"  [dim]Local disk mirror synced ({len(part_files)} chunks): {local_profile_dir}[/dim]")
 
             # 4. Multi-Bot Concurrent Upload
+            upload_results = []
             if total_parts > 0:
                 emit_progress("upload", 50, f"Starting parallel upload ({total_parts} chunks, {len(cluster.bots)} bots)...")
                 with Progress(
@@ -276,24 +282,26 @@ async def run_backup_profile(
                         on_progress=on_part_done
                     )
 
-                    # Save uploaded chunk records to DB
-                    parts_meta = {p["filename"]: p for p in manifest["parts"]}
-                    for res in upload_results:
-                        fname = res["part_name"]
-                        pmeta = parts_meta.get(fname, {})
-                        await db.record_uploaded_part(
-                            part_name=fname,
-                            snapshot_id=snap_id,
-                            message_id=res["message_id"],
-                            topic_id=backup_topic_id or 0,
-                            size=pmeta.get("size", os.path.getsize(res["filepath"])),
-                            sha256=pmeta.get("sha256", ""),
-                            bot_idx=res["bot_idx"]
-                        )
-
             # Upload JSON manifest into profile topic
             if os.path.exists(manifest_path):
                 await cluster.upload_part(manifest_path, profile_name, thread_id=backup_topic_id)
+
+            # Save snapshot and part records to DB ONLY AFTER successful upload
+            await db.save_snapshot(manifest)
+            if upload_results:
+                parts_meta = {p["filename"]: p for p in manifest["parts"]}
+                for res in upload_results:
+                    fname = res["part_name"]
+                    pmeta = parts_meta.get(fname, {})
+                    await db.record_uploaded_part(
+                        part_name=fname,
+                        snapshot_id=snap_id,
+                        message_id=res["message_id"],
+                        topic_id=backup_topic_id or 0,
+                        size=pmeta.get("size", os.path.getsize(res["filepath"])),
+                        sha256=pmeta.get("sha256", ""),
+                        bot_idx=res["bot_idx"]
+                    )
 
             # 5. Disaster Recovery: export, encrypt, and pin master Vault catalog on Telegram
             emit_progress("catalog", 95, "Pinning encrypted recovery catalog on Telegram...")
