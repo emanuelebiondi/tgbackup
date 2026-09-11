@@ -117,8 +117,11 @@ class BotCluster:
             if not self.channel_id:
                 raise ValueError("No channel/supergroup ID specified.")
             
-            base_url = f"{api_endpoint.rstrip('/')}/bot" if api_endpoint else None
-            self.bots = [Bot(token=t, base_url=base_url) for t in self.tokens]
+            if api_endpoint:
+                base_url = f"{api_endpoint.rstrip('/')}/bot"
+                self.bots = [Bot(token=t, base_url=base_url) for t in self.tokens]
+            else:
+                self.bots = [Bot(token=t) for t in self.tokens]
             self._pool = cycle(enumerate(self.bots))
 
     async def _pace_requests(self):
