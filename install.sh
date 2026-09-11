@@ -61,8 +61,21 @@ if [ -d "$OMARCHY_DIR" ]; then
     fi
 fi
 
+# Clean up legacy development artifacts and user wrappers
+if [ -f "$HOME/.local/bin/tgbackup" ]; then
+    echo "==> Cleaning up legacy user wrapper: $HOME/.local/bin/tgbackup"
+    rm -f "$HOME/.local/bin/tgbackup"
+fi
+
+if [ -d "$SCRIPT_DIR/.venv" ]; then
+    echo "==> Cleaning up legacy development environment: $SCRIPT_DIR/.venv"
+    rm -rf "$SCRIPT_DIR/.venv"
+fi
+
 echo ""
 echo "================================================================="
-echo "TGBackup installed successfully!"
-echo "Run 'tgbackup init' to configure your cluster and backups."
+echo "TGBackup installed cleanly to /usr/bin/tgbackup!"
+echo "Systemd service: /usr/lib/systemd/user/tgbackup.service"
+echo "Omarchy plugin:  /usr/share/tgbackup/omarchy-plugin"
+echo "Configuration and database preserved."
 echo "================================================================="
