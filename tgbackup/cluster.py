@@ -143,6 +143,10 @@ class BotCluster:
                     self._message_timestamps = [t for t in self._message_timestamps if now - t < 60.0]
             self._message_timestamps.append(asyncio.get_event_loop().time())
 
+    async def ensure_bot_initialized(self, bot: Any):
+        if not self.mock and hasattr(bot, "initialize") and not getattr(bot, "_bot_initialized", False):
+            await bot.initialize()
+
     def get_next_bot(self) -> Tuple[int, Any]:
         return next(self._pool)
 
@@ -386,38 +390,51 @@ class BotCluster:
         await asyncio.gather(*workers)
         return results
 
-    async def check_message_exists(self, message_id: int) -> bool:
+    async def check_message_exists(self, message_id: int, bot_idx: Optional[int] = None) -> bool:
         if self.mock:
             matches = glob.glob(os.path.join(self.mock_cloud_dir, f"{message_id}_*"))
             return len(matches) > 0
 
-        bot = self.get_primary_bot()
-        try:
-            test_fwd = await bot.forward_message(
-                chat_id=self.channel_id,
-                from_chat_id=self.channel_id,
-                message_id=message_id
-            )
+        all_indices = list(range(len(self.bots)))
+        if bot_idx is not None and 0 <= bot_idx < len(self.bots):
+            ordered_indices = [bot_idx] + [i for i in all_indices if i != bot_idx]
+        else:
+            ordered_indices = all_indices
+
+        for idx in ordered_indices:
+            bot = self.bots[idx]
             try:
-                await bot.delete_message(chat_id=self.channel_id, message_id=test_fwd.message_id)
+                await self.ensure_bot_initialized(bot)
+                test_fwd = await bot.forward_message(
+                    chat_id=self.channel_id,
+                    from_chat_id=self.channel_id,
+                    message_id=message_id
+                )
+                try:
+                    await bot.delete_message(chat_id=self.channel_id, message_id=test_fwd.message_id)
+                except Exception:
+                    pass
+                return True
+            except BadRequest as br:
+                if "not found" in str(br).lower():
+                    continue
+                return True
             except Exception:
-                pass
-            return True
-        except BadRequest as br:
-            if "not found" in str(br).lower():
-                return False
-            return True
-        except Exception:
-            return False
+                continue
+        return False
 
     async def upload_and_pin_catalog(self, catalog_filepath: str, thread_id: Optional[int] = None) -> int:
         msg_id, _ = await self.upload_part(catalog_filepath, "vault_catalog", thread_id=thread_id)
         if not self.mock:
             bot = self.get_primary_bot()
-            try:
-                await bot.pin_chat_message(chat_id=self.channel_id, message_id=msg_id, disable_notification=True)
-            except Exception as e:
-                logger.warning(f"Could not pin catalog #{msg_id}: {e}")
+            for attempt in range(3):
+                try:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    await bot.pin_chat_message(chat_id=self.channel_id, message_id=msg_id, disable_notification=True)
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        logger.warning(f"Could not pin catalog #{msg_id}: {e}")
         return msg_id
 
     async def delete_message(self, message_id: int):
@@ -436,7 +453,12 @@ class BotCluster:
         except Exception as e:
             logger.warning(f"Could not delete message #{message_id}: {e}")
 
-    async def download_file_by_message_id(self, message_id: int, target_path: str):
+    async def download_file_by_message_id(
+        self,
+        message_id: int,
+        target_path: str,
+        bot_idx: Optional[int] = None
+    ):
         if self.mock:
             matches = glob.glob(os.path.join(self.mock_cloud_dir, f"{message_id}_*"))
             if not matches:
@@ -444,17 +466,39 @@ class BotCluster:
             shutil.copy(matches[0], target_path)
             return
 
-        bot_idx, bot = self.get_next_bot()
-        msg = await bot.forward_message(chat_id=self.channel_id, from_chat_id=self.channel_id, message_id=message_id)
-        if not msg.document:
-            raise RuntimeError(f"Message #{message_id} does not contain a valid document attachment.")
-        
-        tg_file = await bot.get_file(msg.document.file_id)
-        await tg_file.download_to_drive(custom_path=target_path)
-        try:
-            await bot.delete_message(chat_id=self.channel_id, message_id=msg.message_id)
-        except Exception:
-            pass
+        # Build ordered list of bot indices: preferred first (if known), then rest
+        all_indices = list(range(len(self.bots)))
+        if bot_idx is not None and 0 <= bot_idx < len(self.bots):
+            ordered_indices = [bot_idx] + [i for i in all_indices if i != bot_idx]
+        else:
+            ordered_indices = all_indices
+
+        last_err = None
+        for idx in ordered_indices:
+            bot = self.bots[idx]
+            try:
+                await self.ensure_bot_initialized(bot)
+                msg = await bot.forward_message(chat_id=self.channel_id, from_chat_id=self.channel_id, message_id=message_id)
+                if not msg.document:
+                    raise RuntimeError(f"Message #{message_id} does not contain a valid document attachment.")
+
+                tg_file = await bot.get_file(msg.document.file_id)
+                await tg_file.download_to_drive(custom_path=target_path)
+                try:
+                    await bot.delete_message(chat_id=self.channel_id, message_id=msg.message_id)
+                except Exception:
+                    pass
+                return
+            except BadRequest as br:
+                last_err = br
+                if "not found" in str(br).lower():
+                    continue
+                raise
+            except Exception as e:
+                last_err = e
+                continue
+
+        raise RuntimeError(f"Failed to download message #{message_id}: {last_err}")
 
     async def get_pinned_catalog_message_id(self, thread_id: Optional[int] = None) -> Optional[int]:
         """

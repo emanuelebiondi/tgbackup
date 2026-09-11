@@ -130,15 +130,38 @@ async def run_backup_profile(
     staging_dir = cfg.get("staging_dir")
     archiver = Archiver(chunk_size_mb=chunk_size, compression_level=comp_level, staging_dir=staging_dir)
 
-    # 1. Retrieve preceding snapshot for incremental backup
+    # 1. Retrieve and verify preceding snapshot for incremental backup
     base_manifest = None
     if not force_full:
         prev_snap = await db.get_latest_snapshot(profile_name)
         if prev_snap and prev_snap.get("manifest_json"):
             try:
-                base_manifest = json.loads(prev_snap["manifest_json"])
-            except Exception:
-                pass
+                candidate_manifest = json.loads(prev_snap["manifest_json"])
+                prev_parts = await db.get_all_parts_for_manifest(candidate_manifest)
+                if candidate_manifest.get("total_parts", 0) > 0 and not prev_parts:
+                    console.print(f"[yellow]Warning: No chunk records found for base snapshot '{prev_snap['id']}'. Promoting to FULL BACKUP.[/yellow]")
+                elif prev_parts:
+                    emit_progress("verify_chain", 3, "Verifying cloud integrity of previous backups on Telegram...")
+                    with console.status("[cyan]Verifying integrity of previous backup chunks on Telegram...[/cyan]"):
+                        missing_remote_parts = []
+                        for p in prev_parts:
+                            mid = p.get("message_id")
+                            if not mid or not await cluster.check_message_exists(mid, bot_idx=p.get("bot_idx")):
+                                missing_remote_parts.append(p.get("part_name", str(mid)))
+                                break
+
+                        if missing_remote_parts:
+                            console.print(f"[bold yellow]Warning: Previous backup chunk '{missing_remote_parts[0]}' was not found on Telegram![/bold yellow]")
+                            console.print("[bold yellow]Previous cloud backup chain is incomplete or missing. Automatically promoting to FULL BACKUP to guarantee complete data safety.[/bold yellow]")
+                            base_manifest = None
+                        else:
+                            console.print(f"  [dim]Verified previous backup integrity: {len(prev_parts)} base chunk(s) confirmed on Telegram.[/dim]")
+                            base_manifest = candidate_manifest
+                else:
+                    base_manifest = candidate_manifest
+            except Exception as e:
+                logger.warning(f"Error checking base snapshot integrity: {e}")
+                base_manifest = None
 
     backup_type_label = "INCREMENTAL" if base_manifest else "FULL"
 
@@ -668,7 +691,7 @@ async def do_restore(args):
                                 pname = p["part_name"]
                                 mid = p["message_id"]
                                 local_part_path = os.path.join(tmpdir, pname)
-                                await cluster.download_file_by_message_id(mid, local_part_path)
+                                await cluster.download_file_by_message_id(mid, local_part_path, bot_idx=p.get("bot_idx"))
                                 downloaded_paths.append(local_part_path)
                                 progress.advance(dl_task)
 
@@ -741,7 +764,7 @@ async def do_check(args):
 
             for p in parts:
                 mid = p["message_id"]
-                exists = await cluster.check_message_exists(mid)
+                exists = await cluster.check_message_exists(mid, bot_idx=p.get("bot_idx"))
                 if exists:
                     verified_count += 1
                     status_badge = "[green]PRESENT[/green]"
