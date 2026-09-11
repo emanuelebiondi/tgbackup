@@ -687,6 +687,9 @@ async def do_status(args):
             parts = await db.get_all_parts()
 
         data = {
+            "staging_dir": cfg.get("staging_dir"),
+            "local_backup_dir": cfg.get("local_backup_dir"),
+            "chunk_size_mb": cfg.get("chunk_size_mb", 19),
             "status": "ok",
             "supergroup_id": cfg.get("channel_id"),
             "profiles": list(cfg.get("profiles", {}).keys()),
@@ -713,6 +716,11 @@ async def do_status(args):
     console.print(f"• [bold]Configuration:[/bold] {args.config or get_default_config_path()}")
     console.print(f"• [bold]Supergroup ID:[/bold] {cfg.get('channel_id')}")
     console.print(f"• [bold]Registered profiles:[/bold] {len(cfg.get('profiles', {}))}")
+    console.print(f"• [bold]Chunk Size:[/bold] {cfg.get('chunk_size_mb', 19)} MB")
+    if cfg.get("staging_dir"):
+        console.print(f"• [bold]Staging Directory:[/bold] {cfg.get('staging_dir')}")
+    if cfg.get("local_backup_dir"):
+        console.print(f"• [bold]Local HDD Mirror:[/bold] {cfg.get('local_backup_dir')}")
 
     with console.status("[cyan]Verifying Telegram bots...[/cyan]"):
         bots_info = await cluster.verify_bots()

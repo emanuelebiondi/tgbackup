@@ -210,6 +210,16 @@ Panel {
                   return root.statusData.bots.online + " of " + root.statusData.bots.total + " online"
                 }
               }
+
+              InfoPair {
+                label: "Local HDD Mirror"
+                value: (root.statusData && root.statusData.local_backup_dir) ? root.statusData.local_backup_dir : "Disabled"
+              }
+
+              InfoPair {
+                label: "Staging Dir"
+                value: (root.statusData && root.statusData.staging_dir) ? root.statusData.staging_dir : "Default (~/.cache)"
+              }
             }
           }
 
