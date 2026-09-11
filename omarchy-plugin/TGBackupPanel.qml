@@ -192,18 +192,6 @@ Panel {
               }
 
               InfoPair {
-                label: "Next Backup"
-                value: {
-                  if (!root.statusData || !root.statusData.timer || !root.statusData.timer.active) return "Disabled"
-                  if (root.statusData.timer.next_left) {
-                    var nr = root.statusData.timer.next_run ? (" (" + root.statusData.timer.next_run.replace(/CEST|CET|UTC/g, "").trim() + ")") : ""
-                    return root.statusData.timer.next_left + nr
-                  }
-                  return root.statusData.timer.next_run || "Scheduled"
-                }
-              }
-
-              InfoPair {
                 label: "Bot Cluster"
                 value: {
                   if (!root.statusData || !root.statusData.bots) return "Not connected"
