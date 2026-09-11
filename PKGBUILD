@@ -1,7 +1,7 @@
 # Maintainer: TGBackup Contributors <contributors@tgbackup.org>
 pkgname=tgbackup
 pkgver=1.0.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Native standalone Arch/Linux backup CLI and daemon to Telegram Supergroup Cluster with AES-256-GCM and zstd"
 arch=('any')
 url="https://github.com/emanuelebiondi/tgbackup"

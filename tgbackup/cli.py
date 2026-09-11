@@ -439,12 +439,66 @@ async def do_restore(args):
         cfg = load_config(args.config)
         mock = getattr(args, "mock", False)
         snap_id = args.snapshot_id
-        dest_dir = args.destination or os.path.abspath(f"./restore_{snap_id}")
         staging_dir = cfg.get("staging_dir")
         if staging_dir:
             os.makedirs(staging_dir, exist_ok=True)
 
         async with VaultDB() as db:
+            if not snap_id:
+                snapshots = await db.get_snapshots()
+                if not snapshots:
+                    console.print("\n[yellow]No snapshots recorded in the vault database.[/yellow]")
+                    console.print("[dim]You have not performed any backups yet. Please create a backup first:[/dim]")
+                    console.print("  [cyan]tgbackup backup --all[/cyan]\n")
+                    return
+
+                table = Table(title=f"Select Snapshot to Restore ({len(snapshots)} available)")
+                table.add_column("#", style="bold cyan", justify="right")
+                table.add_column("Snapshot ID", style="bold")
+                table.add_column("Profile", style="cyan")
+                table.add_column("Type", style="magenta")
+                table.add_column("Date / Time", style="green")
+                table.add_column("Files", justify="right")
+                table.add_column("Encrypted Size", justify="right")
+
+                for idx, s in enumerate(snapshots, start=1):
+                    type_str = "Full" if s.get("type") == "full" else f"Incr ({s.get('parent_id') or ''})"
+                    table.add_row(
+                        str(idx),
+                        s["id"],
+                        s["profile"],
+                        type_str,
+                        s["timestamp"].replace("T", " ")[:19],
+                        str(s["file_count"]),
+                        format_bytes(s["compressed_size"])
+                    )
+                console.print(table)
+
+                while True:
+                    prompt_text = f"\n[bold]Select snapshot number [1-{len(snapshots)}] or enter ID[/bold] [dim](default: 1 - latest)[/dim]: "
+                    selection = console.input(prompt_text).strip()
+                    if not selection:
+                        snap_id = snapshots[0]["id"]
+                        break
+                    if selection.isdigit():
+                        num = int(selection)
+                        if 1 <= num <= len(snapshots):
+                            snap_id = snapshots[num - 1]["id"]
+                            break
+                    matched = [s for s in snapshots if s["id"] == selection]
+                    if matched:
+                        snap_id = matched[0]["id"]
+                        break
+                    console.print("[red]Invalid selection. Please choose a valid number from the table or enter a Snapshot ID.[/red]")
+
+            dest_dir = getattr(args, "destination", None)
+            if not dest_dir:
+                default_dest = os.path.expanduser(f"~/Restore/{snap_id}")
+                dest_input = console.input(f"[bold]Target destination directory[/bold] [dim](default: {default_dest})[/dim]: ").strip()
+                dest_dir = os.path.abspath(os.path.expanduser(dest_input)) if dest_input else default_dest
+            else:
+                dest_dir = os.path.abspath(os.path.expanduser(dest_dir))
+
             snap = await db.get_snapshot(snap_id)
             if not snap:
                 console.print(f"[red]Error: Snapshot '{snap_id}' not found in local catalog.[/red]")
@@ -797,8 +851,8 @@ def main():
 
     # restore
     parser_restore = subparsers.add_parser("restore", help="Restore a snapshot", parents=[base_parser])
-    parser_restore.add_argument("snapshot_id", help="ID of snapshot to restore")
-    parser_restore.add_argument("destination", nargs="?", help="Target extraction directory")
+    parser_restore.add_argument("snapshot_id", nargs="?", default=None, help="ID of snapshot to restore (optional, interactive selection if omitted)")
+    parser_restore.add_argument("destination", nargs="?", default=None, help="Target extraction directory (optional)")
 
     # check (cloud scrub)
     subparsers.add_parser("check", help="Verify integrity of remote chunks on Telegram", parents=[base_parser])

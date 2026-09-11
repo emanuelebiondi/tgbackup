@@ -373,7 +373,7 @@ Panel {
                 foreground: root.foreground
                 onClicked: {
                   if (root.hostWidget) {
-                    root.hostWidget.openFloatingTerminal("bash -c 'tgbackup list; echo; read -p \"Snapshot ID to restore: \" sid; [ -n \"$sid\" ] && tgbackup restore \"$sid\"'")
+                    root.hostWidget.openFloatingTerminal("tgbackup restore")
                     root.close()
                   }
                 }
