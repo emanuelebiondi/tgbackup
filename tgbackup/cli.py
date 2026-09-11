@@ -39,7 +39,7 @@ from .cluster import BotCluster, format_size, format_duration
 from .crypto import encrypt_bytes, decrypt_bytes
 from .db import VaultDB, DEFAULT_DB_PATH
 from .retention import select_snapshots_to_prune
-from .systemd import enable_schedule, disable_schedule, get_schedule_status
+from .systemd import enable_schedule, disable_schedule, get_schedule_status, get_timer_info
 from .fs_snapshot import atomic_snapshot_context
 from .notify import send_desktop_notification
 from .lock import ProcessLock, ProcessLockedError
@@ -677,12 +677,10 @@ async def do_status(args):
         mock=mock
     )
 
+    timer_info = get_timer_info()
     as_json = getattr(args, "json", False)
     if as_json:
         bots_info = await cluster.verify_bots()
-        timer_status = get_schedule_status()
-        timer_enabled = "enabled" in timer_status
-        timer_active = "active (waiting)" in timer_status or "active (running)" in timer_status
         async with VaultDB() as db:
             snaps = await db.get_snapshots()
             latest = snaps[0] if snaps else None
@@ -702,11 +700,7 @@ async def do_status(args):
                 "compressed_bytes": latest["compressed_bytes"],
                 "compressed_str": format_size(latest["compressed_bytes"] or 0)
             } if latest else None,
-            "timer": {
-                "active": timer_active,
-                "enabled": timer_enabled,
-                "raw": timer_status.strip()
-            },
+            "timer": timer_info,
             "bots": {
                 "total": len(bots_info),
                 "online": len([b for b in bots_info if b.get("valid")])
@@ -740,9 +734,16 @@ async def do_status(args):
         snaps = await db.get_snapshots()
         console.print(f"\n• [bold]Snapshots stored in Vault:[/bold] {len(snaps)}")
 
-    console.print("\n• [bold]Systemd Timer Status:[/bold]")
-    timer_status = get_schedule_status()
-    console.print(f"[dim]{timer_status.strip()}[/dim]")
+    if timer_info.get("active") and timer_info.get("next_run"):
+        left_str = f" ({timer_info['next_left']})" if timer_info.get("next_left") else ""
+        console.print(f"• [bold]Next Scheduled Backup:[/bold] [green]{timer_info['next_run']}{left_str}[/green]")
+    elif timer_info.get("enabled"):
+        console.print(f"• [bold]Systemd Timer:[/bold] [yellow]Enabled (Waiting)[/yellow]")
+    else:
+        console.print(f"• [bold]Systemd Timer:[/bold] [dim]Disabled[/dim]")
+
+    console.print("\n• [bold]Systemd Timer Raw Status:[/bold]")
+    console.print(f"[dim]{timer_info.get('raw', '').strip()}[/dim]")
 
 
 def main():

@@ -96,8 +96,10 @@ BarWidget {
         var snapInfo = data.latest_snapshot ? 
           ("Latest: " + data.latest_snapshot.timestamp.substring(0, 16) + " (" + data.latest_snapshot.compressed_str + ")") : 
           "No snapshots found"
-        var timerInfo = data.timer && data.timer.active ? "Timer: Active" : "Timer: Inactive"
-        root.tooltipMsg = "TGBackup Cloud\n" + snapInfo + "\n" + timerInfo + "\nLeft Click: Panel | Right Click: Quick Backup"
+        var nextStr = (data.timer && data.timer.active) ? 
+          ("Next: " + (data.timer.next_left ? data.timer.next_left : (data.timer.next_run || "Scheduled"))) : 
+          "Schedule: Disabled"
+        root.tooltipMsg = "TGBackup Cloud\n" + snapInfo + "\n" + nextStr + "\nLeft Click: Panel | Right Click: Quick Backup"
       } catch (e) {
         root.hasError = true
       }

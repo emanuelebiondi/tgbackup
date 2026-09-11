@@ -74,7 +74,9 @@ Panel {
             width: parent.width
             title: "TGBackup"
             meta: root.backupRunning ? "BACKING UP..." : (root.statusData ? "CLOUD VAULT READY" : "INITIALIZING")
-            detail: root.statusData && root.statusData.timer && root.statusData.timer.active ? "SCHEDULED" : "MANUAL"
+            detail: (root.statusData && root.statusData.timer && root.statusData.timer.active) ?
+              (root.statusData.timer.next_left ? root.statusData.timer.next_left.toUpperCase() : "SCHEDULED") :
+              "MANUAL"
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconComponent: Component {
@@ -190,6 +192,18 @@ Panel {
               }
 
               InfoPair {
+                label: "Next Backup"
+                value: {
+                  if (!root.statusData || !root.statusData.timer || !root.statusData.timer.active) return "Disabled"
+                  if (root.statusData.timer.next_left) {
+                    var nr = root.statusData.timer.next_run ? (" (" + root.statusData.timer.next_run.replace(/CEST|CET|UTC/g, "").trim() + ")") : ""
+                    return root.statusData.timer.next_left + nr
+                  }
+                  return root.statusData.timer.next_run || "Scheduled"
+                }
+              }
+
+              InfoPair {
                 label: "Bot Cluster"
                 value: {
                   if (!root.statusData || !root.statusData.bots) return "Not connected"
@@ -244,8 +258,13 @@ Panel {
                 }
 
                 Text {
-                  text: (root.statusData && root.statusData.timer && root.statusData.timer.active) ? "Automated background backup active" : "Automated backup disabled"
-                  color: (root.statusData && root.statusData.timer && root.statusData.timer.active) ? root.foreground : root.dim
+                  text: {
+                    if (!root.statusData || !root.statusData.timer || !root.statusData.timer.active) return "Automated backup disabled"
+                    var left = root.statusData.timer.next_left ? ("Next run: " + root.statusData.timer.next_left) : "Active"
+                    var date = root.statusData.timer.next_run ? (" • " + root.statusData.timer.next_run.replace(/CEST|CET|UTC/g, "").trim()) : ""
+                    return left + date
+                  }
+                  color: (root.statusData && root.statusData.timer && root.statusData.timer.active) ? root.accent : root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }

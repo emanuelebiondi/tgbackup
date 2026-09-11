@@ -180,3 +180,54 @@ def get_schedule_status() -> str:
     cmd = ["systemctl", "--user", "status", "tgbackup.timer"]
     res = subprocess.run(cmd, capture_output=True, text=True)
     return res.stdout or res.stderr
+
+
+def get_timer_info() -> Dict[str, Any]:
+    """
+    ---------------------------------------------------------------------------
+    Function: get_timer_info
+    Description:
+        Queries systemd for structured timer attributes: active state, enabled state,
+        next scheduled execution timestamp, and remaining time duration.
+    
+    Input parameters:
+        None
+    
+    Return value:
+        @return (Dict[str, Any]) : Structured timer state with next_run and next_left.
+    ---------------------------------------------------------------------------
+    """
+    cmd = [
+        "systemctl", "--user", "show", "tgbackup.timer",
+        "--property=ActiveState,SubState,UnitFileState,NextElapseUSecRealtime,TimersCalendar"
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    props: Dict[str, str] = {}
+    for line in res.stdout.splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            props[k.strip()] = v.strip()
+
+    active = props.get("ActiveState") == "active"
+    enabled = props.get("UnitFileState") == "enabled"
+    next_elapse = props.get("NextElapseUSecRealtime", "")
+    if next_elapse in ("", "0", "n/a"):
+        next_elapse = None
+
+    next_left = None
+    if active:
+        lt_cmd = ["systemctl", "--user", "list-timers", "--plain", "--no-legend", "tgbackup.timer"]
+        lt_res = subprocess.run(lt_cmd, capture_output=True, text=True)
+        parts = lt_res.stdout.strip().split()
+        for p in parts:
+            if any(p.endswith(sfx) for sfx in ("s", "min", "h", "d", "y")):
+                next_left = f"in {p}"
+                break
+
+    return {
+        "active": active,
+        "enabled": enabled,
+        "next_run": next_elapse,
+        "next_left": next_left,
+        "raw": get_schedule_status().strip()
+    }
