@@ -4,10 +4,6 @@
 
 Unlike solutions relying on Duplicati, Rclone wrappers, or heavy Docker containers, `tgbackup` is a lightweight, native Python application seamlessly integrated with Systemd user units, Btrfs/ZFS atomic snapshots, and the Omarchy desktop shell.
 
-<p align="center">
-  <img src="img/screen.png" alt="TGBackup Omarchy Desktop Plugin" width="650">
-</p>
-
 ---
 
 ## Key Features
@@ -144,7 +140,7 @@ tgbackup status --json
 ## Omarchy Shell Plugin
 
 <p align="center">
-  <img src="img/screen.png" alt="TGBackup Omarchy Shell Widget and Panel" width="700">
+  <img src="img/screen.png" alt="TGBackup Omarchy Shell Widget and Panel" width="400">
 </p>
 
 A native desktop plugin for the Omarchy Shell is located in `omarchy-plugin/`:
