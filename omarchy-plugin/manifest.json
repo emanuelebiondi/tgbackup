@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "tgbackup",
+  "name": "TGBackup",
+  "version": "1.0.0",
+  "author": "TGBackup Contributors",
+  "license": "MIT",
+  "description": "Telegram Cloud Backup & Restore Controller for Omarchy Desktop (Hyprland / Quickshell).",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "TGBackupWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "TGBackup Cloud",
+    "description": "Status monitoring, quick backup, scheduling, and Telegram restore.",
+    "category": "System",
+    "aliases": ["backup", "tgbackup", "telegram-backup"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 15
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 5,
+        "max": 120,
+        "step": 5,
+        "defaultValue": 15
+      }
+    ]
+  }
+}

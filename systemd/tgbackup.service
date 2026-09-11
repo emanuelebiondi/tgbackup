@@ -1,0 +1,15 @@
+[Unit]
+Description=TGBackup Automated Telegram Cloud Backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/tgbackup backup --all
+Nice=19
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

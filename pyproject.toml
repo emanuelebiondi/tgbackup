@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tgbackup"
+version = "1.0.0"
+description = "Native standalone Arch/Linux backup CLI and daemon to Telegram Supergroup Cluster with AES-256-GCM and zstd."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "TGBackup Contributors" }
+]
+dependencies = [
+    "python-telegram-bot>=20.0",
+    "aiosqlite>=0.19.0",
+    "cryptography>=41.0.0",
+    "zstandard>=0.21.0",
+    "rich>=13.0.0"
+]
+
+[project.scripts]
+tgbackup = "tgbackup.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tgbackup*"]

@@ -1,0 +1,11 @@
+[Unit]
+Description=TGBackup Scheduled Daily Backup Timer
+After=network-online.target
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target
