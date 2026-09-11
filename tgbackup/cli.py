@@ -186,12 +186,12 @@ async def run_backup_profile(
         enabled=desktop_enabled
     )
 
-    emit_progress("scan", 5, f"Scansione file in corso per '{profile_name}'...")
+    emit_progress("scan", 5, f"Scanning files for profile '{profile_name}'...")
 
     # 3. Atomic filesystem snapshot (Btrfs / direct read fallback)
     with atomic_snapshot_context(paths) as effective_paths:
         with tempfile.TemporaryDirectory(dir=staging_dir, prefix=f"tgb_{profile_name}_") as tmpdir:
-            emit_progress("compress", 20, f"Creazione snapshot cifrato (zstd + AES-256-GCM)...")
+            emit_progress("compress", 20, "Generating encrypted archive (zstd + AES-256-GCM)...")
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -223,7 +223,7 @@ async def run_backup_profile(
                           f"Parts to upload: [bold]{total_parts}[/bold]")
 
             if total_parts == 0:
-                emit_progress("done", 100, "Nessun file modificato. Backup completato (invariato).")
+                emit_progress("done", 100, "No modified files detected. Backup unchanged.")
 
             # Save snapshot record in DB
             await db.save_snapshot(manifest)
@@ -232,7 +232,7 @@ async def run_backup_profile(
             manifest_path = os.path.join(tmpdir, f"snap_{profile_name}_{snap_id}.manifest.json")
             target_local_dir = local_dir or cfg.get("local_backup_dir")
             if target_local_dir:
-                emit_progress("mirror", 45, f"Sincronizzazione su mirror HDD ({total_parts} chunk)...")
+                emit_progress("mirror", 45, f"Syncing {total_parts} chunks to local HDD mirror...")
                 local_profile_dir = os.path.join(os.path.abspath(target_local_dir), profile_name)
                 os.makedirs(local_profile_dir, exist_ok=True)
                 for pf in part_files:
@@ -243,7 +243,7 @@ async def run_backup_profile(
 
             # 4. Multi-Bot Concurrent Upload
             if total_parts > 0:
-                emit_progress("upload", 50, f"Avvio upload parallelo ({total_parts} chunk, {len(cluster.bots)} bot)...")
+                emit_progress("upload", 50, f"Starting parallel upload ({total_parts} chunks, {len(cluster.bots)} bots)...")
                 with Progress(
                     TextColumn("[progress.description]{task.description}"),
                     BarColumn(),
@@ -264,7 +264,7 @@ async def run_backup_profile(
                         emit_progress(
                             "upload",
                             pct,
-                            f"Upload Telegram: {uploaded_parts[0]}/{total_parts} chunk (Bot #{bot_i + 1})...",
+                            f"Telegram upload: {uploaded_parts[0]}/{total_parts} chunks (Bot #{bot_i + 1})...",
                             current=uploaded_parts[0],
                             total=total_parts
                         )
@@ -296,7 +296,7 @@ async def run_backup_profile(
                 await cluster.upload_part(manifest_path, profile_name, thread_id=backup_topic_id)
 
             # 5. Disaster Recovery: export, encrypt, and pin master Vault catalog on Telegram
-            emit_progress("catalog", 95, "Fissaggio catalogo di ripristino cifrato su Telegram...")
+            emit_progress("catalog", 95, "Pinning encrypted recovery catalog on Telegram...")
             catalog_data = await db.export_catalog()
             raw_catalog_bytes = json.dumps(catalog_data).encode("utf-8")
             enc_catalog_bytes = encrypt_bytes(raw_catalog_bytes, passphrase)
@@ -306,7 +306,7 @@ async def run_backup_profile(
             await cluster.upload_and_pin_catalog(cat_path, thread_id=notif_topic_id)
 
     duration = time.time() - start_time
-    emit_progress("done", 100, f"Backup completato con successo in {format_duration(duration)}!")
+    emit_progress("done", 100, f"Backup completed successfully in {format_duration(duration)}!")
     console.print(f"[green]Backup completed successfully in {format_duration(duration)}![/green]")
 
     # Completion notification

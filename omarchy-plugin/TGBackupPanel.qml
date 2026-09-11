@@ -131,7 +131,7 @@ Panel {
                 }
 
                 Text {
-                  text: root.backupJustFinished ? "Backup Completato" : "Backup in Corso"
+                  text: root.backupJustFinished ? "Backup Completed" : "Backup in Progress"
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -153,7 +153,7 @@ Panel {
 
               Text {
                 Layout.fillWidth: true
-                text: root.backupStatusMsg || (root.backupJustFinished ? "Tutti i dati sono sincronizzati." : "Compressione, cifratura e upload...")
+                text: root.backupStatusMsg || (root.backupJustFinished ? "All files synchronized successfully." : "Compressing, encrypting, and uploading chunks...")
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -348,7 +348,7 @@ Panel {
                 width: (parent.width - Style.space(8)) / 2
                 bordered: true
                 iconText: root.backupRunning ? "󰁯" : "󰁪"
-                text: root.backupRunning ? "In corso..." : "Backup"
+                text: root.backupRunning ? "Running..." : "Backup"
                 tooltipText: "Run incremental backup for all profiles"
                 enabled: !root.backupRunning
                 fontFamily: root.fontFamily
@@ -364,7 +364,7 @@ Panel {
                 width: (parent.width - Style.space(8)) / 2
                 bordered: true
                 iconText: root.backupRunning ? "󰁯" : "󰚥"
-                text: root.backupRunning ? "In corso..." : "Full Backup"
+                text: root.backupRunning ? "Running..." : "Full Backup"
                 tooltipText: "Force complete full backup reset"
                 enabled: !root.backupRunning
                 fontFamily: root.fontFamily

@@ -63,7 +63,7 @@ BarWidget {
         if (obj.event === "progress") {
           root.backupPercent = obj.percent || 0
           root.backupPhase = obj.phase || "working"
-          root.backupStatusMsg = obj.message || "Operazione in corso..."
+          root.backupStatusMsg = obj.message || "Backup in progress..."
         }
       } catch (e) {}
     }
@@ -73,7 +73,7 @@ BarWidget {
     if (runBackupProc.running) return
     root.backupPercent = 0
     root.backupPhase = "starting"
-    root.backupStatusMsg = "Avvio backup in corso..."
+    root.backupStatusMsg = "Starting backup..."
     root.backupJustFinished = false
     runBackupProc.command = forceFull ? 
       ["tgbackup", "backup", "--all", "--full", "--json-progress"] : 
@@ -142,7 +142,7 @@ BarWidget {
     onExited: function(exitCode) {
       root.backupPercent = 100
       root.backupJustFinished = true
-      root.backupStatusMsg = (exitCode === 0) ? "Backup completato con successo!" : "Errore durante il backup"
+      root.backupStatusMsg = (exitCode === 0) ? "Backup completed successfully!" : "Error during backup"
       root.refresh()
       resetFinishedTimer.restart()
     }
