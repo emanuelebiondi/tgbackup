@@ -17,6 +17,10 @@ Panel {
 
   readonly property var statusData: hostWidget ? hostWidget.statusData : null
   readonly property bool backupRunning: hostWidget ? hostWidget.backupRunning : false
+  readonly property int backupPercent: hostWidget ? hostWidget.backupPercent : 0
+  readonly property string backupPhase: hostWidget ? hostWidget.backupPhase : ""
+  readonly property string backupStatusMsg: hostWidget ? hostWidget.backupStatusMsg : ""
+  readonly property bool backupJustFinished: hostWidget ? hostWidget.backupJustFinished : false
   readonly property bool hasError: hostWidget ? hostWidget.hasError : false
 
   IpcHandler {
@@ -99,47 +103,79 @@ Panel {
             }
           }
 
-          // 2. In-Progress Backup Banner
+          // 2. Live In-Progress Backup Card
           CursorSurface {
-            visible: root.backupRunning
+            visible: root.backupRunning || root.backupJustFinished
             width: parent.width
-            implicitHeight: backupBannerRow.implicitHeight + Style.space(16)
+            implicitHeight: backupBannerCol.implicitHeight + Style.space(24)
             foreground: root.foreground
-            accent: root.accent
+            accent: root.backupJustFinished ? Color.positive : root.accent
             current: true
 
-            RowLayout {
-              id: backupBannerRow
+            ColumnLayout {
+              id: backupBannerCol
               anchors.fill: parent
               anchors.margins: Style.space(12)
-              spacing: Style.space(10)
+              spacing: Style.space(8)
 
-              Text {
-                text: "󰑮"
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.heading
-                color: root.accent
-                Layout.alignment: Qt.AlignVCenter
-              }
-
-              ColumnLayout {
+              RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space(2)
-                Layout.alignment: Qt.AlignVCenter
+                spacing: Style.space(8)
 
                 Text {
-                  text: "Backup in Progress"
+                  text: root.backupJustFinished ? "󰄲" : "󰁯"
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.heading
+                  color: root.backupJustFinished ? Color.positive : root.accent
+                  Layout.alignment: Qt.AlignVCenter
+                }
+
+                Text {
+                  text: root.backupJustFinished ? "Backup Completato" : "Backup in Corso"
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
+                  Layout.alignment: Qt.AlignVCenter
                 }
 
+                Item { Layout.fillWidth: true }
+
                 Text {
-                  text: "Compressing, encrypting, and uploading chunks..."
-                  color: root.dim
+                  text: root.backupPercent + "%"
+                  color: root.backupJustFinished ? Color.positive : root.accent
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                  Layout.alignment: Qt.AlignVCenter
+                }
+              }
+
+              Text {
+                Layout.fillWidth: true
+                text: root.backupStatusMsg || (root.backupJustFinished ? "Tutti i dati sono sincronizzati." : "Compressione, cifratura e upload...")
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
+              }
+
+              // Smooth visual progress bar
+              Rectangle {
+                Layout.fillWidth: true
+                height: Style.space(6)
+                radius: Style.space(3)
+                color: Color.tint(root.foreground, 0.15)
+
+                Rectangle {
+                  height: parent.height
+                  width: Math.max(0, Math.min(parent.width, parent.width * (root.backupPercent / 100)))
+                  radius: parent.radius
+                  color: root.backupJustFinished ? Color.positive : root.accent
+
+                  Behavior on width {
+                    NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                  }
                 }
               }
             }
@@ -311,16 +347,15 @@ Panel {
               Button {
                 width: (parent.width - Style.space(8)) / 2
                 bordered: true
-                iconText: "󰁪"
-                text: "Backup"
+                iconText: root.backupRunning ? "󰁯" : "󰁪"
+                text: root.backupRunning ? "In corso..." : "Backup"
                 tooltipText: "Run incremental backup for all profiles"
                 enabled: !root.backupRunning
                 fontFamily: root.fontFamily
                 foreground: root.foreground
                 onClicked: {
                   if (root.hostWidget) {
-                    root.hostWidget.openFloatingTerminal("tgbackup backup --all")
-                    root.close()
+                    root.hostWidget.startQuickBackup(false)
                   }
                 }
               }
@@ -328,16 +363,15 @@ Panel {
               Button {
                 width: (parent.width - Style.space(8)) / 2
                 bordered: true
-                iconText: "󰚥"
-                text: "Full Backup"
+                iconText: root.backupRunning ? "󰁯" : "󰚥"
+                text: root.backupRunning ? "In corso..." : "Full Backup"
                 tooltipText: "Force complete full backup reset"
                 enabled: !root.backupRunning
                 fontFamily: root.fontFamily
                 foreground: root.foreground
                 onClicked: {
                   if (root.hostWidget) {
-                    root.hostWidget.openFloatingTerminal("tgbackup backup --all --full")
-                    root.close()
+                    root.hostWidget.startQuickBackup(true)
                   }
                 }
               }

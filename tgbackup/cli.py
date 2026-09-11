@@ -75,8 +75,21 @@ async def run_backup_profile(
     cluster: BotCluster,
     force_full: bool = False,
     local_dir: Optional[str] = None,
-    mock: bool = False
+    mock: bool = False,
+    json_progress: bool = False
 ):
+    def emit_progress(phase: str, percent: int, message: str, **kwargs):
+        if not json_progress:
+            return
+        payload = {
+            "event": "progress",
+            "phase": phase,
+            "percent": percent,
+            "message": message,
+            **kwargs
+        }
+        sys.stdout.write(json.dumps(payload) + "\n")
+        sys.stdout.flush()
     """
     ---------------------------------------------------------------------------
     Function: run_backup_profile
@@ -173,9 +186,12 @@ async def run_backup_profile(
         enabled=desktop_enabled
     )
 
+    emit_progress("scan", 5, f"Scansione file in corso per '{profile_name}'...")
+
     # 3. Atomic filesystem snapshot (Btrfs / direct read fallback)
     with atomic_snapshot_context(paths) as effective_paths:
         with tempfile.TemporaryDirectory(dir=staging_dir, prefix=f"tgb_{profile_name}_") as tmpdir:
+            emit_progress("compress", 20, f"Creazione snapshot cifrato (zstd + AES-256-GCM)...")
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -206,6 +222,9 @@ async def run_backup_profile(
                           f"Encrypted: [bold]{format_size(compressed)}[/bold] | "
                           f"Parts to upload: [bold]{total_parts}[/bold]")
 
+            if total_parts == 0:
+                emit_progress("done", 100, "Nessun file modificato. Backup completato (invariato).")
+
             # Save snapshot record in DB
             await db.save_snapshot(manifest)
 
@@ -213,6 +232,7 @@ async def run_backup_profile(
             manifest_path = os.path.join(tmpdir, f"snap_{profile_name}_{snap_id}.manifest.json")
             target_local_dir = local_dir or cfg.get("local_backup_dir")
             if target_local_dir:
+                emit_progress("mirror", 45, f"Sincronizzazione su mirror HDD ({total_parts} chunk)...")
                 local_profile_dir = os.path.join(os.path.abspath(target_local_dir), profile_name)
                 os.makedirs(local_profile_dir, exist_ok=True)
                 for pf in part_files:
@@ -223,6 +243,7 @@ async def run_backup_profile(
 
             # 4. Multi-Bot Concurrent Upload
             if total_parts > 0:
+                emit_progress("upload", 50, f"Avvio upload parallelo ({total_parts} chunk, {len(cluster.bots)} bot)...")
                 with Progress(
                     TextColumn("[progress.description]{task.description}"),
                     BarColumn(),
@@ -235,8 +256,18 @@ async def run_backup_profile(
                         total=total_parts
                     )
 
+                    uploaded_parts = [0]
                     def on_part_done(fname, mid, bot_i):
                         progress.advance(upload_task)
+                        uploaded_parts[0] += 1
+                        pct = 50 + int(40 * (uploaded_parts[0] / total_parts))
+                        emit_progress(
+                            "upload",
+                            pct,
+                            f"Upload Telegram: {uploaded_parts[0]}/{total_parts} chunk (Bot #{bot_i + 1})...",
+                            current=uploaded_parts[0],
+                            total=total_parts
+                        )
 
                     upload_results = await cluster.upload_parts_parallel(
                         part_files=part_files,
@@ -265,6 +296,7 @@ async def run_backup_profile(
                 await cluster.upload_part(manifest_path, profile_name, thread_id=backup_topic_id)
 
             # 5. Disaster Recovery: export, encrypt, and pin master Vault catalog on Telegram
+            emit_progress("catalog", 95, "Fissaggio catalogo di ripristino cifrato su Telegram...")
             catalog_data = await db.export_catalog()
             raw_catalog_bytes = json.dumps(catalog_data).encode("utf-8")
             enc_catalog_bytes = encrypt_bytes(raw_catalog_bytes, passphrase)
@@ -274,6 +306,7 @@ async def run_backup_profile(
             await cluster.upload_and_pin_catalog(cat_path, thread_id=notif_topic_id)
 
     duration = time.time() - start_time
+    emit_progress("done", 100, f"Backup completato con successo in {format_duration(duration)}!")
     console.print(f"[green]Backup completed successfully in {format_duration(duration)}![/green]")
 
     # Completion notification
@@ -337,6 +370,7 @@ async def do_backup(args):
         mock = getattr(args, "mock", False)
         force_full = getattr(args, "full", False)
         local_dir = getattr(args, "local_dir", None)
+        json_progress = getattr(args, "json_progress", False)
         cluster = BotCluster(
             tokens=cfg["bot_tokens"],
             channel_id=cfg["channel_id"],
@@ -352,9 +386,9 @@ async def do_backup(args):
                     console.print("[yellow]No profiles found in configuration.[/yellow]")
                     return
                 for prof in profiles:
-                    await run_backup_profile(prof, cfg, db, cluster, force_full=force_full, local_dir=local_dir, mock=mock)
+                    await run_backup_profile(prof, cfg, db, cluster, force_full=force_full, local_dir=local_dir, mock=mock, json_progress=json_progress)
             else:
-                await run_backup_profile(args.profile, cfg, db, cluster, force_full=force_full, local_dir=local_dir, mock=mock)
+                await run_backup_profile(args.profile, cfg, db, cluster, force_full=force_full, local_dir=local_dir, mock=mock, json_progress=json_progress)
 
 
 async def do_list(args):
@@ -844,6 +878,7 @@ def main():
     parser_backup.add_argument("--all", action="store_true", help="Run all profiles")
     parser_backup.add_argument("--full", action="store_true", help="Force a Full Backup, ignoring incremental state")
     parser_backup.add_argument("--local-dir", default=None, help="Secondary local backup directory mirror (e.g. external HDD)")
+    parser_backup.add_argument("--json-progress", action="store_true", help="Output machine-readable progress events to stdout")
 
     # list
     parser_list = subparsers.add_parser("list", help="List available snapshots", parents=[base_parser])

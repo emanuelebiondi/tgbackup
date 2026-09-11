@@ -12,6 +12,10 @@ BarWidget {
   
   property var statusData: null
   property bool backupRunning: runBackupProc.running
+  property int backupPercent: 0
+  property string backupPhase: ""
+  property string backupStatusMsg: ""
+  property bool backupJustFinished: false
   property bool hasError: statusData ? (statusData.bots && statusData.bots.online === 0) : false
   property string tooltipMsg: "TGBackup Cloud: Initializing..."
 
@@ -26,7 +30,7 @@ BarWidget {
     return (bar ? bar.barForeground : Color.foreground)
   }
 
-  implicitWidth: button.implicitWidth
+  implicitWidth: root.backupRunning ? (button.slotSize + percentText.implicitWidth + Style.space(6)) : button.slotSize
   implicitHeight: button.implicitHeight
 
   function refresh() {
@@ -49,11 +53,31 @@ BarWidget {
     else open()
   }
 
+  function handleProgressLine(line) {
+    if (!line) return
+    var str = String(line).trim()
+    var jsonStart = str.indexOf('{"event":')
+    if (jsonStart !== -1) {
+      try {
+        var obj = JSON.parse(str.substring(jsonStart))
+        if (obj.event === "progress") {
+          root.backupPercent = obj.percent || 0
+          root.backupPhase = obj.phase || "working"
+          root.backupStatusMsg = obj.message || "Operazione in corso..."
+        }
+      } catch (e) {}
+    }
+  }
+
   function startQuickBackup(forceFull) {
     if (runBackupProc.running) return
+    root.backupPercent = 0
+    root.backupPhase = "starting"
+    root.backupStatusMsg = "Avvio backup in corso..."
+    root.backupJustFinished = false
     runBackupProc.command = forceFull ? 
-      ["tgbackup", "backup", "--all", "--full"] : 
-      ["tgbackup", "backup", "--all"]
+      ["tgbackup", "backup", "--all", "--full", "--json-progress"] : 
+      ["tgbackup", "backup", "--all", "--json-progress"]
     runBackupProc.running = true
   }
 
@@ -106,12 +130,34 @@ BarWidget {
     }
   }
 
-  // Background quick backup process
+  // Background quick backup process with streaming JSON progress
   Process {
     id: runBackupProc
-    command: ["tgbackup", "backup", "--all"]
+    command: ["tgbackup", "backup", "--all", "--json-progress"]
+    stdout: SplitParser {
+      onRead: function(line) {
+        root.handleProgressLine(line)
+      }
+    }
     onExited: function(exitCode) {
+      root.backupPercent = 100
+      root.backupJustFinished = true
+      root.backupStatusMsg = (exitCode === 0) ? "Backup completato con successo!" : "Errore durante il backup"
       root.refresh()
+      resetFinishedTimer.restart()
+    }
+  }
+
+  Timer {
+    id: resetFinishedTimer
+    interval: 5000
+    running: false
+    repeat: false
+    onTriggered: {
+      root.backupJustFinished = false
+      root.backupPercent = 0
+      root.backupPhase = ""
+      root.backupStatusMsg = ""
     }
   }
 
@@ -123,19 +169,34 @@ BarWidget {
     onTriggered: root.refresh()
   }
 
-  BarIconButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    text: root.iconGlyph
-    foreground: root.statusColor
-    tooltipText: root.tooltipMsg
-    onPressed: function(mouseButton) {
-      if (mouseButton === Qt.RightButton) {
-        root.startQuickBackup(false)
-      } else {
-        root.togglePanel()
+  Row {
+    anchors.centerIn: parent
+    spacing: Style.space(2)
+
+    BarIconButton {
+      id: button
+      bar: root.bar
+      text: root.iconGlyph
+      foreground: root.statusColor
+      tooltipText: root.backupRunning ? ("TGBackup: " + root.backupStatusMsg + " (" + root.backupPercent + "%)") : root.tooltipMsg
+      onPressed: function(mouseButton) {
+        if (mouseButton === Qt.RightButton) {
+          root.startQuickBackup(false)
+        } else {
+          root.togglePanel()
+        }
       }
+    }
+
+    Text {
+      id: percentText
+      visible: root.backupRunning
+      anchors.verticalCenter: parent.verticalCenter
+      text: root.backupPercent + "%"
+      color: Color.accent
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+      font.bold: true
     }
   }
 
