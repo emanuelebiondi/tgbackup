@@ -174,9 +174,9 @@ async def run_full_suite():
         check_args = Args(config=cfg_path, mock=True)
         await do_check(check_args)
 
-        print("\n=== 7. LAYERED INCREMENTAL RESTORE TEST WITH TOMBSTONE PRUNING ===")
+        print("\n=== 7. LAYERED INCREMENTAL RESTORE TEST (LOCAL MIRROR) ===")
         restore_dest = os.path.join(work_dir, "restored_final")
-        restore_args = Args(config=cfg_path, snapshot_id=snap4_id, destination=restore_dest, mock=True)
+        restore_args = Args(config=cfg_path, snapshot_id=snap4_id, destination=restore_dest, source="local", mock=True)
         await do_restore(restore_args)
 
         # Verify bit-by-bit integrity of remaining files
@@ -186,7 +186,6 @@ async def run_full_suite():
 
         assert os.path.exists(restored_f1), "file1.txt must be restored"
         assert os.path.exists(restored_f2), "binary.dat must be restored"
-        # file3_new.txt was deleted in snap4, so tombstone pruning MUST remove it from destination
         assert not os.path.exists(restored_f3), "file3_new.txt must be pruned by tombstone deletion"
 
         with open(f1_path, "r") as f_orig, open(restored_f1, "r") as f_rest:
@@ -194,7 +193,18 @@ async def run_full_suite():
         with open(f2_path, "rb") as f_orig, open(restored_f2, "rb") as f_rest:
             assert f_orig.read() == f_rest.read(), "binary.dat content matches byte-for-byte"
 
-        print("[OK] INCREMENTAL RESTORE & TOMBSTONE PRUNING PASSED: Files matched, deleted file pruned!")
+        print("[OK] LOCAL MIRROR RESTORE & TOMBSTONE PRUNING PASSED: Files matched, deleted file pruned!")
+
+        print("\n=== 7b. IN-PLACE RESTORE TEST (TELEGRAM CLOUD SOURCE) ===")
+        # Corrupt local file to verify in-place restoration repairs it
+        with open(f1_path, "w") as f:
+            f.write("CORRUPTED LOCAL DATA!")
+        inplace_args = Args(config=cfg_path, snapshot_id=snap4_id, destination=None, in_place=True, source="telegram", mock=True)
+        await do_restore(inplace_args)
+
+        with open(f1_path, "r") as f_repaired, open(restored_f1, "r") as f_expected:
+            assert f_repaired.read() == f_expected.read(), "Corrupted file must be repaired in-place"
+        print("[OK] IN-PLACE RESTORE PASSED: Corrupted file successfully repaired in-place from Telegram Cloud!")
 
         print("\n=== 8. DISASTER RECOVERY TEST (ZERO-ARG AUTO REINDEX) ===")
         # SIMULATE DISASTER: Total deletion of local SQLite database file!

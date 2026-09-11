@@ -525,80 +525,159 @@ async def do_restore(args):
                         break
                     console.print("[red]Invalid selection. Please choose a valid number from the table or enter a Snapshot ID.[/red]")
 
-            dest_dir = getattr(args, "destination", None)
-            if not dest_dir:
-                default_dest = os.path.expanduser(f"~/Restore/{snap_id}")
-                dest_input = console.input(f"[bold]Target destination directory[/bold] [dim](default: {default_dest})[/dim]: ").strip()
-                dest_dir = os.path.abspath(os.path.expanduser(dest_input)) if dest_input else default_dest
-            else:
-                dest_dir = os.path.abspath(os.path.expanduser(dest_dir))
-
             snap = await db.get_snapshot(snap_id)
             if not snap:
                 console.print(f"[red]Error: Snapshot '{snap_id}' not found in local catalog.[/red]")
                 return
 
             manifest = json.loads(snap["manifest_json"])
+            orig_paths = manifest.get("paths", [])
             parts = await db.get_all_parts_for_manifest(manifest)
             if not parts and manifest.get("total_parts", 0) > 0:
                 console.print(f"[red]Error: No chunks recorded for snapshot '{snap_id}'.[/red]")
                 return
+
+            # 1. Destination Selection (Original location vs Custom path)
+            is_in_place = False
+            dest_dir = getattr(args, "destination", None)
+            if getattr(args, "in_place", False):
+                is_in_place = True
+                dest_dir = None
+            elif dest_dir:
+                is_in_place = False
+                dest_dir = os.path.abspath(os.path.expanduser(dest_dir))
+            else:
+                orig_display = ", ".join(orig_paths) if orig_paths else "Recorded snapshot paths"
+                console.print(f"\n[bold]Snapshot original path(s):[/bold] [cyan]{orig_display}[/cyan]")
+                console.print("[bold]Choose restore destination:[/bold]")
+                console.print(f"  [1] Original location ({orig_display}) [dim][in-place overwrite][/dim]")
+                console.print("  [2] Custom directory [dim](extract into a specified folder)[/dim]")
+
+                dest_choice = console.input("\n[bold]Select destination option [1-2][/bold] [dim](default: 2)[/dim]: ").strip()
+                if dest_choice == "1":
+                    confirm = console.input("[bold yellow]Warning: In-place restore will overwrite existing files in their original locations. Proceed? [y/N]: [/bold yellow]").strip().lower()
+                    if confirm in ("y", "yes"):
+                        is_in_place = True
+                        dest_dir = None
+                    else:
+                        console.print("[yellow]In-place restore cancelled. Falling back to custom directory.[/yellow]")
+                        dest_choice = "2"
+
+                if dest_choice != "1" or not is_in_place:
+                    is_in_place = False
+                    default_dest = os.path.expanduser(f"~/Restore/{snap_id}")
+                    dest_input = console.input(f"[bold]Target destination directory[/bold] [dim](default: {default_dest})[/dim]: ").strip()
+                    dest_dir = os.path.abspath(os.path.expanduser(dest_input)) if dest_input else default_dest
+
+            # 2. Source Selection (Local Mirror vs Telegram Cloud)
+            local_backup_dir = getattr(args, "local_dir", None) or cfg.get("local_backup_dir")
+            local_profile_dir = os.path.join(os.path.abspath(local_backup_dir), snap["profile"]) if local_backup_dir else None
+
+            local_available = False
+            missing_local_parts = []
+            if local_profile_dir and os.path.exists(local_profile_dir):
+                for p in parts:
+                    lp = os.path.join(local_profile_dir, p["part_name"])
+                    if not os.path.exists(lp):
+                        missing_local_parts.append(p["part_name"])
+                if not missing_local_parts and parts:
+                    local_available = True
+
+            cli_source = getattr(args, "source", None)
+            if cli_source == "local":
+                if not local_available:
+                    console.print(f"[red]Error: Local mirror at '{local_profile_dir}' is missing {len(missing_local_parts)} chunks.[/red]")
+                    return
+                use_local = True
+            elif cli_source in ("telegram", "cloud"):
+                use_local = False
+            else:
+                if local_available:
+                    console.print(f"\n[bold]Local HDD mirror found:[/bold] [cyan]{local_profile_dir}[/cyan] [dim]({len(parts)} chunks available)[/dim]")
+                    console.print("[bold]Choose restore source:[/bold]")
+                    console.print("  [1] Local mirror [dim](fast, offline, instant extraction)[/dim]")
+                    console.print("  [2] Telegram Cloud [dim](download via multi-bot cluster)[/dim]")
+                    src_choice = console.input("\n[bold]Select source [1-2][/bold] [dim](default: 1)[/dim]: ").strip()
+                    use_local = (src_choice != "2")
+                else:
+                    if local_profile_dir and os.path.exists(local_profile_dir):
+                        console.print(f"\n[dim]Local mirror at '{local_profile_dir}' has {len(missing_local_parts)} chunks missing. Restoring from Telegram Cloud.[/dim]")
+                    use_local = False
 
             passphrase = get_passphrase(cfg)
             if not passphrase:
                 console.print("[red]Passphrase required for restore.[/red]")
                 return
 
-            cluster = BotCluster(
-                tokens=cfg["bot_tokens"],
-                channel_id=cfg["channel_id"],
-                use_topics=cfg.get("use_topics", True),
-                api_endpoint=cfg.get("api_endpoint"),
-                rate_limit_per_minute=cfg.get("rate_limit_per_minute", 20),
-                mock=mock
-            )
+            source_label = f"Local Mirror ({local_profile_dir})" if use_local else f"Telegram Cloud ({len(parts)} chunks)"
+            dest_label = f"Original location (in-place: {', '.join(orig_paths)})" if is_in_place else f"Custom directory ({dest_dir})"
 
             console.print(Panel(
                 f"[bold cyan]Snapshot Restore:[/bold cyan] [bold]{snap_id}[/bold]\n"
-                f"[bold]Profile:[/bold] {snap['profile']} | [bold]Chunks to download:[/bold] {len(parts)}\n"
-                f"[bold]Destination:[/bold] {dest_dir}",
+                f"[bold]Profile:[/bold] {snap['profile']} | [bold]Chunks:[/bold] {len(parts)}\n"
+                f"[bold]Source:[/bold] {source_label}\n"
+                f"[bold]Destination:[/bold] {dest_label}",
                 title="TGBackup Restore",
                 border_style="green"
             ))
 
-            with tempfile.TemporaryDirectory(prefix=f"tgbrestore_{snap_id}_", dir=staging_dir) as tmpdir:
-                downloaded_paths = []
-                if parts:
-                    with Progress(
-                        TextColumn("[progress.description]{task.description}"),
-                        BarColumn(),
-                        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                        TimeElapsedColumn(),
-                        console=console
-                    ) as progress:
-                        dl_task = progress.add_task(f"[cyan]Downloading {len(parts)} chunks from Telegram...", total=len(parts))
-                        for p in parts:
-                            pname = p["part_name"]
-                            mid = p["message_id"]
-                            local_part_path = os.path.join(tmpdir, pname)
-                            await cluster.download_file_by_message_id(mid, local_part_path)
-                            downloaded_paths.append(local_part_path)
-                            progress.advance(dl_task)
+            archiver = Archiver(
+                chunk_size_mb=cfg.get("chunk_size_mb", 19),
+                staging_dir=staging_dir
+            )
 
-                archiver = Archiver(
-                    chunk_size_mb=cfg.get("chunk_size_mb", 19),
-                    staging_dir=staging_dir
-                )
-                with console.status("[bold green]Verifying SHA-256 hashes, decrypting, and extracting files...[/bold green]"):
+            if use_local:
+                local_part_paths = [os.path.join(local_profile_dir, p["part_name"]) for p in parts]
+                with console.status("[bold green]Verifying SHA-256 hashes, decrypting, and extracting files from local mirror...[/bold green]"):
                     archiver.extract_snapshot(
                         manifest=manifest,
-                        part_files=downloaded_paths,
+                        part_files=local_part_paths,
                         passphrase=passphrase,
-                        destination_dir=dest_dir
+                        destination_dir=dest_dir,
+                        in_place=is_in_place
                     )
+            else:
+                cluster = BotCluster(
+                    tokens=cfg["bot_tokens"],
+                    channel_id=cfg["channel_id"],
+                    use_topics=cfg.get("use_topics", True),
+                    api_endpoint=cfg.get("api_endpoint"),
+                    rate_limit_per_minute=cfg.get("rate_limit_per_minute", 20),
+                    mock=mock
+                )
+                with tempfile.TemporaryDirectory(prefix=f"tgbrestore_{snap_id}_", dir=staging_dir) as tmpdir:
+                    downloaded_paths = []
+                    if parts:
+                        with Progress(
+                            TextColumn("[progress.description]{task.description}"),
+                            BarColumn(),
+                            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                            TimeElapsedColumn(),
+                            console=console
+                        ) as progress:
+                            dl_task = progress.add_task(f"[cyan]Downloading {len(parts)} chunks from Telegram...", total=len(parts))
+                            for p in parts:
+                                pname = p["part_name"]
+                                mid = p["message_id"]
+                                local_part_path = os.path.join(tmpdir, pname)
+                                await cluster.download_file_by_message_id(mid, local_part_path)
+                                downloaded_paths.append(local_part_path)
+                                progress.advance(dl_task)
+
+                    with console.status("[bold green]Verifying SHA-256 hashes, decrypting, and extracting files...[/bold green]"):
+                        archiver.extract_snapshot(
+                            manifest=manifest,
+                            part_files=downloaded_paths,
+                            passphrase=passphrase,
+                            destination_dir=dest_dir,
+                            in_place=is_in_place
+                        )
 
             console.print(f"\n[bold green]Restore completed successfully![/bold green]")
-            console.print(f"Restored files located in: [bold]{dest_dir}[/bold]")
+            if is_in_place:
+                console.print(f"Files restored directly to original location: [bold]{', '.join(orig_paths)}[/bold]")
+            else:
+                console.print(f"Restored files located in: [bold]{dest_dir}[/bold]")
 
 
 async def do_check(args):
@@ -887,7 +966,10 @@ def main():
     # restore
     parser_restore = subparsers.add_parser("restore", help="Restore a snapshot", parents=[base_parser])
     parser_restore.add_argument("snapshot_id", nargs="?", default=None, help="ID of snapshot to restore (optional, interactive selection if omitted)")
-    parser_restore.add_argument("destination", nargs="?", default=None, help="Target extraction directory (optional)")
+    parser_restore.add_argument("destination", nargs="?", default=None, help="Target extraction directory (optional, prompts if omitted)")
+    parser_restore.add_argument("--source", choices=["local", "telegram", "cloud"], default=None, help="Restore source: 'local' (mirror) or 'telegram' (cloud)")
+    parser_restore.add_argument("--in-place", "--original", action="store_true", default=False, help="Restore files directly to their original location recorded in snapshot")
+    parser_restore.add_argument("--local-dir", default=None, help="Path to local backup mirror directory (overrides config)")
 
     # check (cloud scrub)
     subparsers.add_parser("check", help="Verify integrity of remote chunks on Telegram", parents=[base_parser])

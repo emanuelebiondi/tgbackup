@@ -15,6 +15,7 @@ import tarfile
 import tempfile
 import hashlib
 import json
+import shutil
 from datetime import datetime
 import zstandard as zstd
 from typing import List, Dict, Tuple, Optional, Callable, Set
@@ -289,7 +290,8 @@ class Archiver:
         manifest: dict,
         part_files: List[str],
         passphrase: str,
-        destination_dir: str
+        destination_dir: Optional[str] = None,
+        in_place: bool = False
     ):
         """
         -----------------------------------------------------------------------
@@ -298,68 +300,101 @@ class Archiver:
             Performs complete restoration by decrypting and decompressing chunks.
             Supports layered incremental extraction: newer modified files overwrite
             base files, ensuring exact point-in-time filesystem consistency.
+            If in_place is True, restored files are written directly back to their
+            original absolute filesystem paths recorded in the snapshot manifest.
         Input parameters:
-            @param manifest (dict)        : Snapshot metadata manifest.
-            @param part_files (List[str]) : Downloaded chunk file paths.
-            @param passphrase (str)       : Decryption passphrase.
-            @param destination_dir (str)  : Target destination directory.
+            @param manifest (dict)                  : Snapshot metadata manifest.
+            @param part_files (List[str])           : Downloaded or local chunk paths.
+            @param passphrase (str)                 : Decryption passphrase.
+            @param destination_dir (Optional[str])  : Target extraction directory.
+            @param in_place (bool)                  : If True, restore to original paths.
         -----------------------------------------------------------------------
         """
-        os.makedirs(destination_dir, exist_ok=True)
+        if not in_place:
+            if not destination_dir:
+                raise ValueError("destination_dir is required when in_place is False")
+            os.makedirs(destination_dir, exist_ok=True)
+            target_dir = destination_dir
+        else:
+            target_dir = tempfile.mkdtemp(dir=self.staging_dir, prefix="tgb_inplace_")
+
         if not part_files:
+            if in_place and os.path.exists(target_dir):
+                shutil.rmtree(target_dir, ignore_errors=True)
             return
 
-        # Group chunk parts by snapshot prefix
-        # Typical naming: snap_{profile}_{snapshot_id}.partXXX.zst.enc
-        snaps_groups: Dict[str, List[str]] = {}
-        for pf in sorted(part_files):
-            fname = os.path.basename(pf)
-            parts = fname.split(".part")
-            prefix = parts[0] if len(parts) > 1 else "default"
-            snaps_groups.setdefault(prefix, []).append(pf)
+        try:
+            # Group chunk parts by snapshot prefix
+            # Typical naming: snap_{profile}_{snapshot_id}.partXXX.zst.enc
+            snaps_groups: Dict[str, List[str]] = {}
+            for pf in sorted(part_files):
+                fname = os.path.basename(pf)
+                parts = fname.split(".part")
+                prefix = parts[0] if len(parts) > 1 else "default"
+                snaps_groups.setdefault(prefix, []).append(pf)
 
-        dctx = zstd.ZstdDecompressor()
+            dctx = zstd.ZstdDecompressor()
 
-        # Extract in chronological snapshot group order (base first, then incrementals)
-        for snap_prefix in sorted(snaps_groups.keys()):
-            group_files = sorted(snaps_groups[snap_prefix])
-            temp_tar = tempfile.NamedTemporaryFile(dir=self.staging_dir, delete=False, suffix=".tar")
+            # Extract in chronological snapshot group order (base first, then incrementals)
+            for snap_prefix in sorted(snaps_groups.keys()):
+                group_files = sorted(snaps_groups[snap_prefix])
+                temp_tar = tempfile.NamedTemporaryFile(dir=self.staging_dir, delete=False, suffix=".tar")
 
-            try:
-                with open(temp_tar.name, "wb") as tar_out:
-                    with dctx.stream_writer(tar_out) as zstd_writer:
-                        for pf in group_files:
-                            with open(pf, "rb") as enc_f:
-                                enc_data = enc_f.read()
-                            raw_data = decrypt_bytes(enc_data, passphrase)
-                            zstd_writer.write(raw_data)
+                try:
+                    with open(temp_tar.name, "wb") as tar_out:
+                        with dctx.stream_writer(tar_out) as zstd_writer:
+                            for pf in group_files:
+                                with open(pf, "rb") as enc_f:
+                                    enc_data = enc_f.read()
+                                raw_data = decrypt_bytes(enc_data, passphrase)
+                                zstd_writer.write(raw_data)
 
-                with tarfile.open(temp_tar.name, "r") as tar:
-                    try:
-                        tar.extractall(path=destination_dir, filter="data")
-                    except TypeError:
-                        tar.extractall(path=destination_dir)
-
-            finally:
-                if os.path.exists(temp_tar.name):
-                    os.remove(temp_tar.name)
-
-        # Tombstone / Pruning: Remove deleted files not present in the final target manifest
-        expected_files = set(manifest.get("files_catalog", {}).keys())
-        if expected_files:
-            for root, dirs, files in os.walk(destination_dir, topdown=False):
-                for f in files:
-                    full_p = os.path.join(root, f)
-                    rel_p = os.path.relpath(full_p, destination_dir)
-                    if rel_p not in expected_files:
+                    with tarfile.open(temp_tar.name, "r") as tar:
                         try:
-                            os.remove(full_p)
+                            tar.extractall(path=target_dir, filter="data")
+                        except TypeError:
+                            tar.extractall(path=target_dir)
+
+                finally:
+                    if os.path.exists(temp_tar.name):
+                        os.remove(temp_tar.name)
+
+            # Tombstone / Pruning: Remove deleted files not present in the final target manifest
+            expected_files = set(manifest.get("files_catalog", {}).keys())
+            if expected_files:
+                for root, dirs, files in os.walk(target_dir, topdown=False):
+                    for f in files:
+                        full_p = os.path.join(root, f)
+                        rel_p = os.path.relpath(full_p, target_dir)
+                        if rel_p not in expected_files:
+                            try:
+                                os.remove(full_p)
+                            except OSError:
+                                pass
+                    for d in dirs:
+                        dir_p = os.path.join(root, d)
+                        try:
+                            if not os.listdir(dir_p):
+                                os.rmdir(dir_p)
                         except OSError:
                             pass
-                for d in dirs:
-                    dir_p = os.path.join(root, d)
-                    try:
-                        if not os.listdir(dir_p):
-                            os.rmdir(dir_p)
-                    except OSError:
-                        pass
+
+            if in_place:
+                # Copy verified point-in-time files directly to their original filesystem paths
+                catalog = manifest.get("files_catalog", {})
+                for rel_p, meta in catalog.items():
+                    src_f = os.path.join(target_dir, rel_p)
+                    orig_f = meta.get("abs_path")
+                    if orig_f and os.path.exists(src_f):
+                        os.makedirs(os.path.dirname(orig_f), exist_ok=True)
+                        shutil.copy2(src_f, orig_f)
+                        mtime = meta.get("mtime")
+                        if mtime:
+                            try:
+                                os.utime(orig_f, (mtime, mtime))
+                            except OSError:
+                                pass
+
+        finally:
+            if in_place and os.path.exists(target_dir):
+                shutil.rmtree(target_dir, ignore_errors=True)
