@@ -527,15 +527,30 @@ async def do_restore(args):
                 table.add_column("Encrypted Size", justify="right")
 
                 for idx, s in enumerate(snapshots, start=1):
-                    type_str = "Full" if s.get("type") == "full" else f"Incr ({s.get('parent_id') or ''})"
+                    # Determine type from manifest_json if available
+                    mj = s.get("manifest_json")
+                    if mj:
+                        import json as _json
+                        try:
+                            mdata = _json.loads(mj)
+                            if mdata.get("base_snapshot_id"):
+                                base_id = mdata['base_snapshot_id']
+                                base_time = base_id.split("_")[-1] if "_" in base_id else base_id
+                                type_str = f"Incr (base {base_time})"
+                            else:
+                                type_str = "Full"
+                        except Exception:
+                            type_str = "Full"
+                    else:
+                        type_str = "Unknown"
                     table.add_row(
                         str(idx),
                         s["id"],
                         s["profile"],
                         type_str,
                         s["timestamp"].replace("T", " ")[:19],
-                        str(s["file_count"]),
-                        format_bytes(s["compressed_size"])
+                        str(s.get("total_files", 0)),
+                        format_size(s.get("compressed_bytes", 0))
                     )
                 console.print(table)
 
