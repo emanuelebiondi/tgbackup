@@ -319,7 +319,7 @@ Panel {
                 foreground: root.foreground
                 onClicked: {
                   if (root.hostWidget) {
-                    root.hostWidget.startQuickBackup(false)
+                    root.hostWidget.openFloatingTerminal("tgbackup backup --all")
                     root.close()
                   }
                 }
@@ -336,7 +336,7 @@ Panel {
                 foreground: root.foreground
                 onClicked: {
                   if (root.hostWidget) {
-                    root.hostWidget.startQuickBackup(true)
+                    root.hostWidget.openFloatingTerminal("tgbackup backup --all --full")
                     root.close()
                   }
                 }
