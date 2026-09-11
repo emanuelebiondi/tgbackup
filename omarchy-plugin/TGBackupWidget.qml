@@ -59,9 +59,17 @@ BarWidget {
 
   function openFloatingTerminal(cmd) {
     if (root.bar) {
-      root.bar.run("omarchy-launch-or-focus-tui --app-id=TUI.float \"" + cmd + "\"")
+      root.bar.run("omarchy-launch-floating-terminal-with-presentation " + cmd)
     } else {
-      Quickshell.execDetached(["alacritty", "--class", "TUI.float", "-e", "bash", "-c", cmd])
+      Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", cmd])
+    }
+  }
+
+  function openConfigEditor() {
+    if (root.bar) {
+      root.bar.run("omarchy-launch-editor ~/.config/tgbackup/config.json")
+    } else {
+      Quickshell.execDetached(["omarchy-launch-editor", "~/.config/tgbackup/config.json"])
     }
   }
 

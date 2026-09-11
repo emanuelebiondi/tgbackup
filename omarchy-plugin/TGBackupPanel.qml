@@ -340,7 +340,7 @@ Panel {
                 foreground: root.foreground
                 onClicked: {
                   if (root.hostWidget) {
-                    root.hostWidget.openFloatingTerminal("tgbackup check; echo \"\"; read -p \"Press Enter to close...\"")
+                    root.hostWidget.openFloatingTerminal("tgbackup check")
                     root.close()
                   }
                 }
@@ -356,25 +356,46 @@ Panel {
                 foreground: root.foreground
                 onClicked: {
                   if (root.hostWidget) {
-                    root.hostWidget.openFloatingTerminal("tgbackup list; echo \"\"; read -p \"Snapshot ID to restore: \" sid; [ -n \"\\$sid\" ] && tgbackup restore \"\\$sid\"; echo \"\"; read -p \"Press Enter to close...\"")
+                    root.hostWidget.openFloatingTerminal("bash -c 'tgbackup list; echo; read -p \"Snapshot ID to restore: \" sid; [ -n \"$sid\" ] && tgbackup restore \"$sid\"'")
                     root.close()
                   }
                 }
               }
             }
 
-            Button {
+            Row {
               width: parent.width
-              bordered: true
-              iconText: "󰒓"
-              text: "Configure Wizard"
-              tooltipText: "Launch interactive configuration wizard"
-              fontFamily: root.fontFamily
-              foreground: root.foreground
-              onClicked: {
-                if (root.hostWidget) {
-                  root.hostWidget.openFloatingTerminal("tgbackup init; echo \"\"; read -p \"Press Enter to close...\"")
-                  root.close()
+              spacing: Style.space(8)
+
+              Button {
+                width: (parent.width - Style.space(8)) / 2
+                bordered: true
+                iconText: "󰒓"
+                text: "Setup Wizard"
+                tooltipText: "Launch interactive configuration wizard"
+                fontFamily: root.fontFamily
+                foreground: root.foreground
+                onClicked: {
+                  if (root.hostWidget) {
+                    root.hostWidget.openFloatingTerminal("tgbackup init")
+                    root.close()
+                  }
+                }
+              }
+
+              Button {
+                width: (parent.width - Style.space(8)) / 2
+                bordered: true
+                iconText: "󰈔"
+                text: "Edit Config"
+                tooltipText: "Open config.json in default editor"
+                fontFamily: root.fontFamily
+                foreground: root.foreground
+                onClicked: {
+                  if (root.hostWidget) {
+                    root.hostWidget.openConfigEditor()
+                    root.close()
+                  }
                 }
               }
             }
