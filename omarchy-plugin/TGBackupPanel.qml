@@ -21,6 +21,7 @@ Panel {
   readonly property string backupPhase: hostWidget ? hostWidget.backupPhase : ""
   readonly property string backupStatusMsg: hostWidget ? hostWidget.backupStatusMsg : ""
   readonly property bool backupJustFinished: hostWidget ? hostWidget.backupJustFinished : false
+  readonly property bool backupFailed: hostWidget ? hostWidget.backupFailed : false
   readonly property bool hasError: hostWidget ? hostWidget.hasError : false
 
   IpcHandler {
@@ -105,11 +106,11 @@ Panel {
 
           // 2. Live In-Progress Backup Card
           CursorSurface {
-            visible: root.backupRunning || root.backupJustFinished
+            visible: root.backupRunning || root.backupJustFinished || root.backupFailed
             width: parent.width
             implicitHeight: backupBannerCol.implicitHeight + Style.space(24)
             foreground: root.foreground
-            accent: root.backupJustFinished ? Color.positive : root.accent
+            accent: root.backupFailed ? root.urgent : (root.backupJustFinished ? Color.positive : root.accent)
             current: true
 
             ColumnLayout {
@@ -123,15 +124,15 @@ Panel {
                 spacing: Style.space(8)
 
                 Text {
-                  text: root.backupJustFinished ? "󰄲" : "󰁯"
+                  text: root.backupFailed ? "󰅚" : (root.backupJustFinished ? "󰄲" : "󰁯")
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.heading
-                  color: root.backupJustFinished ? Color.positive : root.accent
+                  color: root.backupFailed ? root.urgent : (root.backupJustFinished ? Color.positive : root.accent)
                   Layout.alignment: Qt.AlignVCenter
                 }
 
                 Text {
-                  text: root.backupJustFinished ? "Backup Completed" : "Backup in Progress"
+                  text: root.backupFailed ? "Backup Failed" : (root.backupJustFinished ? "Backup Completed" : "Backup in Progress")
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -143,7 +144,7 @@ Panel {
 
                 Text {
                   text: root.backupPercent + "%"
-                  color: root.backupJustFinished ? Color.positive : root.accent
+                  color: root.backupFailed ? root.urgent : (root.backupJustFinished ? Color.positive : root.accent)
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
@@ -153,11 +154,12 @@ Panel {
 
               Text {
                 Layout.fillWidth: true
-                text: root.backupStatusMsg || (root.backupJustFinished ? "All files synchronized successfully." : "Compressing, encrypting, and uploading chunks...")
-                color: root.dim
+                text: root.backupStatusMsg || (root.backupFailed ? "An error occurred during backup." : (root.backupJustFinished ? "All files synchronized successfully." : "Compressing, encrypting, and uploading chunks..."))
+                color: root.backupFailed ? root.urgent : root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 elide: Text.ElideRight
+                wrapMode: Text.WordWrap
               }
 
               // Smooth visual progress bar
@@ -171,7 +173,7 @@ Panel {
                   height: parent.height
                   width: Math.max(0, Math.min(parent.width, parent.width * (root.backupPercent / 100)))
                   radius: parent.radius
-                  color: root.backupJustFinished ? Color.positive : root.accent
+                  color: root.backupFailed ? root.urgent : (root.backupJustFinished ? Color.positive : root.accent)
 
                   Behavior on width {
                     NumberAnimation { duration: 150; easing.type: Easing.OutCubic }

@@ -16,21 +16,22 @@ BarWidget {
   property string backupPhase: ""
   property string backupStatusMsg: ""
   property bool backupJustFinished: false
+  property bool backupFailed: false
   property bool hasError: statusData ? (statusData.bots && statusData.bots.online === 0) : false
   property string tooltipMsg: "TGBackup Cloud: Initializing..."
 
-  // Nerd Font Icon: 󰁯 (nf-md-cloud_sync) or 󰋼 (nf-md-cloud_check)
-  readonly property string iconGlyph: backupRunning ? "󰁯" : (hasError ? "󰅚" : "󰋼")
+  // Nerd Font Icon: 󰁯 (nf-md-cloud_sync), 󰅚 (nf-md-close_circle), or 󰋼 (nf-md-cloud_check)
+  readonly property string iconGlyph: (hasError || backupFailed) ? "󰅚" : (backupRunning ? "󰁯" : "󰋼")
 
   // Dynamic status color
   readonly property color statusColor: {
+    if (backupFailed || hasError) return Color.urgent
     if (backupRunning) return Color.accent
-    if (hasError) return Color.urgent
     if (statusData && statusData.timer && statusData.timer.active) return Color.accent
     return (bar ? bar.barForeground : Color.foreground)
   }
 
-  implicitWidth: root.backupRunning ? (button.slotSize + percentText.implicitWidth + Style.space(6)) : button.slotSize
+  implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
   function refresh() {
@@ -64,6 +65,9 @@ BarWidget {
           root.backupPercent = obj.percent || 0
           root.backupPhase = obj.phase || "working"
           root.backupStatusMsg = obj.message || "Backup in progress..."
+          if (obj.phase === "error") {
+            root.backupFailed = true
+          }
         }
       } catch (e) {}
     }
@@ -75,6 +79,8 @@ BarWidget {
     root.backupPhase = "starting"
     root.backupStatusMsg = "Starting backup..."
     root.backupJustFinished = false
+    root.backupFailed = false
+    resetFinishedTimer.stop()
     runBackupProc.command = forceFull ? 
       ["tgbackup", "backup", "--all", "--full", "--json-progress"] : 
       ["tgbackup", "backup", "--all", "--json-progress"]
@@ -139,10 +145,35 @@ BarWidget {
         root.handleProgressLine(line)
       }
     }
+    stderr: StdioCollector {
+      id: runBackupErr
+      waitForEnd: true
+    }
     onExited: function(exitCode) {
       root.backupPercent = 100
-      root.backupJustFinished = true
-      root.backupStatusMsg = (exitCode === 0) ? "Backup completed successfully!" : "Error during backup"
+      root.backupJustFinished = (exitCode === 0)
+      root.backupFailed = (exitCode !== 0)
+      if (exitCode === 0) {
+        root.backupStatusMsg = "Backup completed successfully!"
+      } else {
+        var err = String(runBackupErr.text || "").trim()
+        if (err.indexOf("Lock Error") !== -1 || err.indexOf("already running") !== -1) {
+          root.backupStatusMsg = "Lock error: Another backup is already in progress"
+        } else if (err.length > 0) {
+          var lines = err.split("\n")
+          var firstErr = lines[0]
+          for (var i = 0; i < lines.length; i++) {
+            var l = lines[i].trim()
+            if (l.length > 0 && l.indexOf("Traceback") === -1) {
+              firstErr = l
+              break
+            }
+          }
+          root.backupStatusMsg = firstErr.replace(/\[\/?\w+\]/g, "")
+        } else if (!root.backupStatusMsg || root.backupStatusMsg.indexOf("Error") === -1) {
+          root.backupStatusMsg = "Backup failed (exit code " + exitCode + ")"
+        }
+      }
       root.refresh()
       resetFinishedTimer.restart()
     }
@@ -150,11 +181,12 @@ BarWidget {
 
   Timer {
     id: resetFinishedTimer
-    interval: 5000
+    interval: 6000
     running: false
     repeat: false
     onTriggered: {
       root.backupJustFinished = false
+      root.backupFailed = false
       root.backupPercent = 0
       root.backupPhase = ""
       root.backupStatusMsg = ""
@@ -169,34 +201,25 @@ BarWidget {
     onTriggered: root.refresh()
   }
 
-  Row {
-    anchors.centerIn: parent
-    spacing: Style.space(2)
+  WidgetButton {
+    id: button
+    anchors.fill: parent
+    bar: root.bar
+    text: root.backupRunning ? (root.iconGlyph + "  " + root.backupPercent + "%") : root.iconGlyph
+    active: root.backupRunning || root.hasError || root.backupFailed
+    activeColor: (root.hasError || root.backupFailed) ? Color.urgent : Color.accent
+    foreground: root.statusColor
+    fontSize: Style.bar.iconFont
+    fixedWidth: root.backupRunning ? -1 : (root.vertical ? -1 : Style.bar.iconSlot)
+    horizontalMargin: 8
+    tooltipText: root.backupRunning ? ("TGBackup: " + root.backupStatusMsg + " (" + root.backupPercent + "%)") : root.tooltipMsg
 
-    BarIconButton {
-      id: button
-      bar: root.bar
-      text: root.iconGlyph
-      foreground: root.statusColor
-      tooltipText: root.backupRunning ? ("TGBackup: " + root.backupStatusMsg + " (" + root.backupPercent + "%)") : root.tooltipMsg
-      onPressed: function(mouseButton) {
-        if (mouseButton === Qt.RightButton) {
-          root.startQuickBackup(false)
-        } else {
-          root.togglePanel()
-        }
+    onPressed: function(mouseButton) {
+      if (mouseButton === Qt.RightButton) {
+        root.startQuickBackup(false)
+      } else {
+        root.togglePanel()
       }
-    }
-
-    Text {
-      id: percentText
-      visible: root.backupRunning
-      anchors.verticalCenter: parent.verticalCenter
-      text: root.backupPercent + "%"
-      color: Color.accent
-      font.family: Style.font.family
-      font.pixelSize: Style.font.caption
-      font.bold: true
     }
   }
 

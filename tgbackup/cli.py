@@ -947,12 +947,18 @@ def main():
             elif args.action == "status":
                 console.print(get_schedule_status())
     except ProcessLockedError as e:
+        if "--json-progress" in sys.argv:
+            print(json.dumps({"event": "progress", "phase": "error", "percent": 100, "message": "Lock Error: Another backup process is already running"}), flush=True)
         console.print(f"[red]Lock Error:[/red] {e}")
         sys.exit(1)
     except KeyboardInterrupt:
+        if "--json-progress" in sys.argv:
+            print(json.dumps({"event": "progress", "phase": "error", "percent": 100, "message": "Operation interrupted by user."}), flush=True)
         console.print("\n[yellow]Operation interrupted by user.[/yellow]")
         sys.exit(130)
     except Exception as e:
+        if "--json-progress" in sys.argv:
+            print(json.dumps({"event": "progress", "phase": "error", "percent": 100, "message": f"Error: {e}"}), flush=True)
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
