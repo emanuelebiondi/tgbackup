@@ -893,7 +893,18 @@ def main():
             asyncio.run(do_status(args))
         elif args.command == "schedule":
             if args.action == "enable":
-                res = enable_schedule(args.cron)
+                cfg = None
+                try:
+                    cfg = load_config(args.config)
+                except Exception:
+                    pass
+                cron_expr = args.cron
+                if cron_expr == "daily" and cfg and cfg.get("schedule"):
+                    cron_expr = cfg["schedule"]
+                elif cron_expr != "daily" and cfg:
+                    cfg["schedule"] = cron_expr
+                    save_config(cfg, args.config)
+                res = enable_schedule(cron_expr)
                 console.print(f"[green]{res}[/green]")
             elif args.action == "disable":
                 res = disable_schedule()
